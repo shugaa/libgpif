@@ -30,7 +30,7 @@ set(libSrcs
 add_library(gpif SHARED ${libSrcs})
 
 install(TARGETS gpif 
-    DESTINATION gpif)
+    DESTINATION lib)
 
 # Requires CMAKE 2.6, so we won't be using it for now although it makes stuff a
 # little bit simpler
