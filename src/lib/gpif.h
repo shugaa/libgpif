@@ -84,12 +84,15 @@ typedef struct {
  * necesary information.
  *
  * @param session     Session to be initialized
+ * @param argv        First item: name of the gnuplot binary, will usually be 'gnuplot'
+ *                    Any successive items: gnuplot arguments
+ *                    The last item must always be NULL
  *
  * @return EGPIFOK    No errors occured
  * @return EGPIFINVAL An invalid argument has been passed
  * @return EGPIFERR   Session could not be created
  */
-int gpif_init(gpif_session_t *session);
+int gpif_init(gpif_session_t *session, char *const argv[]);
 
 /** Destroy a gnuplot session
  *

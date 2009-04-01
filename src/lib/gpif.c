@@ -44,31 +44,26 @@
 /*                           Implementation                                  */
 /* ######################################################################### */
 
-int gpif_init(gpif_session_t *session)
+int gpif_init(gpif_session_t *session, char *const argv[])
 {
     int rc;
     pid_t pid;
     int pipe_togp[2];
     int pipe_fromgp[2];
 
-    /* Argument vector */
-    char *argv[] = {
-        "gnuplot",
-        NULL,
-    };
-
-    if (!session) {
+    if (!session)
         return EGPIFINVAL;
-    }
+
+    if (!argv)
+        return EGPIFINVAL;
 
     rc = pipe (pipe_togp);
-    if (rc < 0) {
+    if (rc < 0)
         return EGPIFERR;
-    }
+
     rc = pipe (pipe_fromgp);
-    if (rc < 0) {
+    if (rc < 0)
         return EGPIFERR;
-    }
 
     pid = fork();
     if (pid < 0) {
@@ -88,7 +83,8 @@ int gpif_init(gpif_session_t *session)
         close(pipe_fromgp[0]);
         close(pipe_fromgp[1]);
 
-        execvp("gnuplot", argv);
+        printf("gnuplot binary name: %s\n", argv[0]);
+        execvp(argv[0], argv);
         perror("execvp");
         return 1;
     }
