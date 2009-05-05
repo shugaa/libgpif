@@ -39,6 +39,8 @@
 /* ######################################################################### */
 /*                           Private interface (Module)                      */
 /* ######################################################################### */
+ssize_t prv_gpif_read(int fd, void* vptr, ssize_t len);
+ssize_t prv_gpif_write(int fd, const void* ptr, size_t len);
 
 /* ######################################################################### */
 /*                           Implementation                                  */
@@ -83,7 +85,6 @@ int gpif_init(gpif_session_t *session, char *const argv[])
         close(pipe_fromgp[0]);
         close(pipe_fromgp[1]);
 
-        printf("gnuplot binary name: %s\n", argv[0]);
         execvp(argv[0], argv);
         perror("execvp");
         return 1;
@@ -118,9 +119,10 @@ int gpif_close(gpif_session_t *session)
     if (!session)
         return EGPIFINVAL;
 
-    /* Send quit command */
-    count = strlen("quit\n");
-    rc = gpif_write(session, "quit\n", &count);
+    /* Send quit command. The leading newline is for safety in case some garbage
+     * ended up on the command line */
+    count = strlen("\nquit\n");
+    rc = gpif_write(session, "\nquit\n", &count);
     if (rc != EGPIFOK)
         return EGPIFERR;
 
@@ -139,7 +141,7 @@ int gpif_close(gpif_session_t *session)
 
 int gpif_write(gpif_session_t *session, const char *buf, size_t *count)
 {
-    size_t written;
+    ssize_t written;
 
     if (!session)
         return EGPIFINVAL;
@@ -148,7 +150,7 @@ int gpif_write(gpif_session_t *session, const char *buf, size_t *count)
     if (!count)
         return EGPIFINVAL;
     
-    written = write(session->gp_write, buf, *count);
+    written = prv_gpif_write(session->gp_write, buf, *count);
     if (written != *count) {
 
         if (written < 0)
@@ -163,7 +165,7 @@ int gpif_write(gpif_session_t *session, const char *buf, size_t *count)
 
 int gpif_read(gpif_session_t *session, void *buf, size_t *count)
 {
-    size_t bytes_read;
+    ssize_t bytes_read;
 
     if (!session)
         return EGPIFINVAL;
@@ -172,7 +174,7 @@ int gpif_read(gpif_session_t *session, void *buf, size_t *count)
     if (!count)
         return EGPIFINVAL;
 
-    bytes_read = read(session->gp_read, buf, *count);
+    bytes_read = prv_gpif_read(session->gp_read, buf, *count);
     if (read < 0) {
         *count = 0;
         return EGPIFERR;
@@ -180,5 +182,86 @@ int gpif_read(gpif_session_t *session, void *buf, size_t *count)
     
     *count = bytes_read;
     return EGPIFOK;
+}
+
+ssize_t prv_gpif_read(int fd, void* vptr, ssize_t len)
+{
+    ssize_t n, rc;
+    char *ptr;
+    fd_set waitforread;
+
+    ptr = vptr;
+    n = 0;
+
+    while(n < len) {
+        if((rc = read(fd, ptr, len-n)) > 0) {
+            n+=rc;
+            ptr=&((char*)vptr)[n];
+
+            /* Text mode, break on newline */
+            if (((char*)vptr)[n-1] == '\n')
+                return n;
+
+            if (n == len)
+                return n;
+        }
+        else {
+            if (errno == EINTR)
+                ;
+            else if (errno == EAGAIN) {
+
+                FD_ZERO(&waitforread); 
+                FD_SET(fd, &waitforread);
+                if (select(fd+1, &waitforread, NULL, NULL, NULL) < 0) {
+                    perror("select");
+                    return -1;
+                }     
+
+            }
+            else {
+                if (rc != 0)
+                    perror("read");
+
+                return -1;
+            }
+        }
+    }
+
+    return n;
+}
+
+ssize_t prv_gpif_write(int fd, const void* ptr, size_t len) 
+{
+    size_t nleft;
+    ssize_t nwritten;
+    fd_set waitforwrite;
+
+    nleft = len;
+    while(nleft > 0) {
+        if((nwritten = write(fd, ptr, nleft)) <= 0) {
+
+            if(errno == EINTR)
+                nwritten = 0;
+            else if(errno == EAGAIN) {
+
+                nwritten = 0;
+                
+                FD_ZERO(&waitforwrite); 
+                FD_SET(fd, &waitforwrite);
+                if (select(fd+1, NULL, &waitforwrite, NULL, NULL) < 0) {
+                    perror("select");
+                    return -1;
+                } 
+            }
+            else {
+                perror("write");
+                return -1;
+            }
+        }
+        nleft -= nwritten;
+        ptr += nwritten;
+    }
+
+    return len;
 }
 
