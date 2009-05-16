@@ -39,8 +39,8 @@
 /* ######################################################################### */
 /*                           Private interface (Module)                      */
 /* ######################################################################### */
-ssize_t prv_gpif_read(int fd, void* vptr, ssize_t len);
-ssize_t prv_gpif_write(int fd, const void* ptr, size_t len);
+static ssize_t prv_gpif_read(int fd, void* vptr, ssize_t len);
+static ssize_t prv_gpif_write(int fd, const void* ptr, size_t len);
 
 /* ######################################################################### */
 /*                           Implementation                                  */
