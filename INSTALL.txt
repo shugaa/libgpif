@@ -1,6 +1,9 @@
-Here's some instructions on how to build and install libgpif.
+Here's some instructions (interwoven with notes to myself) on how to build and
+install libgpif.
 
-1. Create Makefiles (cmake needed)
+1. Create Makefiles
+
+    Install cmake (http://www.cmake.org/) if you haven't got it already.
     
     If you want to install into a non-standard location you can modify the
     CMAKE_INSTALL_PREFIX cmake cache entry to change the destination using the
@@ -8,11 +11,18 @@ Here's some instructions on how to build and install libgpif.
 
         -DCMAKE_INSTALL_PREFIX:PATH=/opt/libgpif
 
-    You might want to tell cmake if you'd like to build tests or not. You will
-    need to have cunit (http://cunit.sourceforge.net/) installed in order to use
-    this, otherwise your build will fail:
+    If you want a Debug build of libgpif you can specify 
 
-        -DGPIF_WITH_TESTS:BOOL=TRUE
+        -DCMAKE_BUILD_TYPE:STRING=Debug
+
+    on cmake's commandline. Make sure you have cunit
+    (http://cunit.sourceforge.net/) installed though, as an additional unit test
+    binary will be created as well.
+
+    I tend to use clang (http://clang.llvm.org) quite often lately, this is how
+    I tell cmake which C-compiler to use (entirely optional if you don't care):
+
+        -DCMAKE_C_COMPILER:STRING=clang
 
     I would suggest building out of tree, so make yourself a build directory
     somewhere:
@@ -20,24 +30,28 @@ Here's some instructions on how to build and install libgpif.
         mkdir build
         cd build
 
-    Finally run cmake with any of the above options. I prefixed the cmake
-    command with the CFLAGS that I wanted to use, you will probably want to use
-    your own ones. If in doubt just omit any CFLAGS.
+    Finally run cmake with any of the above options an the path to libgpif's
+    source directory:
 
-        CFLAGS="-march=nocona -O2 -pipe -Wall -Werror" cmake [OPTS] /path/to/libgpif/src/
+        cmake [OPTS] /path/to/libgpif/src/
 
 2. Build
     
         make
 
     Running make in your build directory will build the shared libgpif library
-    and optionally a 'gpiftest' binary which runs some unit tests on the library:
+    and optionally (in a Debug build) a 'gpiftesttest' binary which runs some
+    unit tests against the library.
 
 3. Install
 
         make install
 
     There is no need to install if for instance you just want to run gpiftest.
-    cmake will set everything up accordingly. Just go ahead and run test/piftest
-    from the build direcotry. I would suggest to do so before installing anyway. 
+    cmake will set everything up accordingly. Just go ahead and run
+    test/gpiftest from the build direcotry. I would suggest to do so before
+    installing anyway. 
+
+4. Update you dynamic linker's runtime bindings so it can find libgpif (see e.g.
+   man ldconfig on Linux).
 
