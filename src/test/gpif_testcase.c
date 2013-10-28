@@ -46,7 +46,7 @@ static void test_gpif(void)
     rc = gpif_init(&session, argv);
     CU_ASSERT(rc == EGPIFOK);
 
-    strncpy(buf, "plot '-' using 1:($2) '%lf %lf' smooth unique notitle axes x1y1\n1 2\n2 3\ne\n", sizeof(buf));
+    strncpy(buf, "plot '-' with lines smooth unique notitle axes x1y1\n1 2\n2 3\ne\n", sizeof(buf));
     len = strlen(buf);
     rc = gpif_write(&session, (const char*)buf, &len);
     CU_ASSERT(rc == EGPIFOK);

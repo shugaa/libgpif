@@ -177,7 +177,7 @@ int gpif_read(gpif_session_t *session, void *buf, size_t *count)
         return EGPIFINVAL;
 
     bytes_read = prv_gpif_read(session->gp_read, buf, *count);
-    if (read < 0) {
+    if (bytes_read < 0) {
         *count = 0;
         return EGPIFERR;
     }
