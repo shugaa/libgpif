@@ -1,25 +1,3 @@
-/*
-* Copyright (c) 2008, Björn Rehm (bjoern@shugaa.de)
-* 
-* Permission is hereby granted, free of charge, to any person obtaining a copy
-* of this software and associated documentation files (the "Software"), to deal
-* in the Software without restriction, including without limitation the rights
-* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-* copies of the Software, and to permit persons to whom the Software is
-* furnished to do so, subject to the following conditions:
-* 
-* The above copyright notice and this permission notice shall be included in
-* all copies or substantial portions of the Software.
-* 
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-* THE SOFTWARE.
-*/
-
 /** @file gpif.h
  *
  * @brief Public library interface
@@ -34,8 +12,8 @@
  * Feedback to bjoern@shugaa.de is always highly appreciated.
  */
 
-#ifndef _GPIF_H
-#define _GPIF_H
+#ifndef GPIF_H
+#define GPIF_H
 
 #include <sys/types.h>
 
@@ -47,9 +25,9 @@
 /*                            Types & Defines                                */
 /* ######################################################################### */
 
-#define EGPIFERR     0   /* General error */
-#define EGPIFOK      1   /* Success */
-#define EGPIFINVAL   2   /* Invalid argument */
+#define EGPIFOK      (1)    /* Success */
+#define EGPIFERR     (-1)   /* General error */
+#define EGPIFINVAL   (-2)   /* Invalid argument */
 
 typedef struct {
     /* PID of the gnuplot process */
@@ -59,7 +37,7 @@ typedef struct {
      * respectively */
     int gp_read;
     int gp_write;
-} gpif_session_t;
+} gpif_session;
 
 /* ######################################################################### */
 /*                            Public interface                               */
@@ -80,7 +58,7 @@ typedef struct {
  * @return EGPIFINVAL An invalid argument has been passed
  * @return EGPIFERR   Session could not be created
  */
-int gpif_init(gpif_session_t *session, char *const argv[]);
+int gpif_init(gpif_session *session, char *const argv[]);
 
 /** Destroy a gnuplot session
  *
@@ -92,7 +70,7 @@ int gpif_init(gpif_session_t *session, char *const argv[]);
  * @return EGPIFINVAL An invalid argument has been passed
  * @return EGPIFERR   Session could not be destroyed
  */
-int gpif_close(gpif_session_t *session);
+int gpif_close(gpif_session *session);
 
 /** Write to gnuplot's STDIN 
  * 
@@ -107,7 +85,7 @@ int gpif_close(gpif_session_t *session);
  * @return EGPIFINVAL An invalid argument has been passed
  * @return EGPIFERR   Unable to write
  */
-int gpif_write(gpif_session_t *session, const char *buf, size_t *count);
+int gpif_write(gpif_session *session, const char *buf, size_t *count);
 
 /** Read from gnuplot's STDOUT
  *  
@@ -122,7 +100,7 @@ int gpif_write(gpif_session_t *session, const char *buf, size_t *count);
  * @return EGPIFINVAL An invalid argument has been passed
  * @return EGPIFERR   Unable to read
  */
-int gpif_read(gpif_session_t *session, void *buf, size_t *count);
+int gpif_read(gpif_session *session, void *buf, size_t *count);
 
-#endif /* _GPIF_H */
+#endif /* GPIF_H */
 

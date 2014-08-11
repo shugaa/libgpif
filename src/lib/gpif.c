@@ -1,25 +1,3 @@
-/*
-* Copyright (c) 2008, Björn Rehm (bjoern@shugaa.de)
-* 
-* Permission is hereby granted, free of charge, to any person obtaining a copy
-* of this software and associated documentation files (the "Software"), to deal
-* in the Software without restriction, including without limitation the rights
-* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-* copies of the Software, and to permit persons to whom the Software is
-* furnished to do so, subject to the following conditions:
-* 
-* The above copyright notice and this permission notice shall be included in
-* all copies or substantial portions of the Software.
-* 
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-* THE SOFTWARE.
-*/
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -27,7 +5,8 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <errno.h>
-
+#include <sys/types.h>
+#include <signal.h>
 #include "gpif.h"
 
 /* ######################################################################### */
@@ -42,58 +21,86 @@
 /*                           Private interface (Module)                      */
 /* ######################################################################### */
 
-static ssize_t prv_gpif_read(int fd, void* vptr, ssize_t len);
-static ssize_t prv_gpif_write(int fd, const void* ptr, size_t len);
+static ssize_t fdread(int fd, void* vptr, ssize_t len);
+static ssize_t fdwrite(int fd, const void* ptr, size_t len);
 
 /* ######################################################################### */
 /*                           Implementation                                  */
 /* ######################################################################### */
 
-int gpif_init(gpif_session_t *session, char *const argv[])
+int gpif_init(gpif_session *session, char *const argv[])
 {
     int rc;
     pid_t pid;
-    int pipe_togp[2];
-    int pipe_fromgp[2];
+    int pipe_togp[2] = {-1,-1};
+    int pipe_fromgp[2] = {-1,-1};
 
-    if (!session)
+    /* Basic parameter checking */
+    if (session == NULL)
+        return EGPIFINVAL;
+    if (argv == NULL)
         return EGPIFINVAL;
 
-    if (!argv)
-        return EGPIFINVAL;
+    /* Create read and write pipes for interacting with GNUPlot */
+    for(;;)
+    {
+        rc = pipe (pipe_togp);
+        if (rc < 0)
+        {
+            /* Pipe error */
+            break;
+        };
 
-    rc = pipe (pipe_togp);
-    if (rc < 0)
-        return EGPIFERR;
+        rc = pipe (pipe_fromgp);
+        if (rc < 0)
+        {
+            /* Pipe error */
+            break;
+        }
 
-    rc = pipe (pipe_fromgp);
-    if (rc < 0)
-        return EGPIFERR;
+        pid = fork();
+        if (pid < 0) 
+        {
+            /* Fork error */
+            rc = -1;
+            break;
+        }
 
-    pid = fork();
-    if (pid < 0) {
+        rc = 0;
+        break;
+    }
+   
+    /* Something went horribly wrong, don't bother continuing */
+    if (rc != 0)
+    {
+        close(pipe_togp[0]);
+        close(pipe_togp[1]);
+        close(pipe_fromgp[0]);
+        close(pipe_fromgp[1]);
+
         return EGPIFERR;
     }
 
     /* Child */
-    if (pid == 0) {
-
-        /* STDIN / STDOUT will automatically be closed by dup2() if necessary */
+    if (pid == 0) 
+    {
+        /* Make STDIN and STDOUT refer to the respective pipe ends */
         dup2(pipe_togp[0], STDIN_FILENO);
         dup2(pipe_fromgp[1], STDOUT_FILENO);
-       
+
         /* These file descriptors are now unneeded */
         close(pipe_togp[0]);
         close(pipe_togp[1]);
         close(pipe_fromgp[0]);
         close(pipe_fromgp[1]);
 
+        /* Exec child process with gnuplot. Will only return on error */
         execvp(argv[0], argv);
         perror("execvp");
-        return 1;
+        return EGPIFERR;
     }
 
-    /* Parent. TODO: Make sure everything is OK in the child. */
+    /* Parent. */
 
     /* Close unused pipe ends */
     close(pipe_togp[0]);
@@ -101,10 +108,27 @@ int gpif_init(gpif_session_t *session, char *const argv[])
 
     /* Make the read end non blocking, if there is nothing to read then so be
      * it. */
-    rc = fcntl(pipe_fromgp[0], F_SETFL, O_NONBLOCK);
-    if (rc < 0)
-        return EGPIFERR;
+    for (;;)
+    {
+        rc = fcntl(pipe_fromgp[0], F_SETFL, O_NONBLOCK);
+        if (rc < 0)
+            break;
 
+        break;
+    }
+   
+    /* Error */
+    if (rc < 0)
+    {
+        /* This is not the most sophisticated exit strategy but it'll probably
+         * do. */
+        kill(pid, SIGKILL);
+        close(pipe_togp[1]);
+        close(pipe_fromgp[0]);
+        return EGPIFERR;
+    }
+
+    /* Everything OK so far, initialize session */
     session->gp_pid = pid;
     session->gp_read = pipe_fromgp[0];
     session->gp_write = pipe_togp[1];
@@ -112,22 +136,24 @@ int gpif_init(gpif_session_t *session, char *const argv[])
     return EGPIFOK;
 }
 
-int gpif_close(gpif_session_t *session)
+int gpif_close(gpif_session *session)
 {
     int rc;
     size_t count;
     int exit_status;
+    char quitcmd[] = "\nquit\n";
 
-    if (!session)
+    if (session == NULL)
         return EGPIFINVAL;
 
     /* Send quit command. The leading newline is for safety in case some garbage
      * ended up on the command line */
-    count = strlen("\nquit\n");
-    rc = gpif_write(session, "\nquit\n", &count);
+    count = strlen(quitcmd);
+    rc = gpif_write(session, quitcmd, &count);
     if (rc != EGPIFOK)
         return EGPIFERR;
 
+    /* Wait for the GNUPlot child to exti */
     rc = waitpid(session->gp_pid, &exit_status, 0);
     if (rc < 0)
         return EGPIFERR;
@@ -135,26 +161,27 @@ int gpif_close(gpif_session_t *session)
     if(!WIFEXITED(exit_status))
         return EGPIFERR;
 
+    /* Close open file descriptors */
     close(session->gp_read);
     close(session->gp_write);
 
     return EGPIFOK;
 }
 
-int gpif_write(gpif_session_t *session, const char *buf, size_t *count)
+int gpif_write(gpif_session *session, const char *buf, size_t *count)
 {
     ssize_t written;
 
-    if (!session)
+    if (session == NULL)
         return EGPIFINVAL;
-    if (!buf)
+    if (buf == NULL)
         return EGPIFINVAL;
-    if (!count)
+    if (count == NULL)
         return EGPIFINVAL;
     
-    written = prv_gpif_write(session->gp_write, buf, *count);
-    if (written != *count) {
-
+    written = fdwrite(session->gp_write, buf, *count);
+    if (written != *count) 
+    {
         if (written < 0)
             written = 0;
 
@@ -165,19 +192,20 @@ int gpif_write(gpif_session_t *session, const char *buf, size_t *count)
     return EGPIFOK;
 }
 
-int gpif_read(gpif_session_t *session, void *buf, size_t *count)
+int gpif_read(gpif_session *session, void *buf, size_t *count)
 {
     ssize_t bytes_read;
 
-    if (!session)
+    if (session == NULL)
         return EGPIFINVAL;
-    if (!buf)
+    if (buf == NULL)
         return EGPIFINVAL;
-    if (!count)
+    if (count == NULL)
         return EGPIFINVAL;
 
-    bytes_read = prv_gpif_read(session->gp_read, buf, *count);
-    if (bytes_read < 0) {
+    bytes_read = fdread(session->gp_read, buf, *count);
+    if (bytes_read < 0) 
+    {
         *count = 0;
         return EGPIFERR;
     }
@@ -186,7 +214,7 @@ int gpif_read(gpif_session_t *session, void *buf, size_t *count)
     return EGPIFOK;
 }
 
-ssize_t prv_gpif_read(int fd, void* vptr, ssize_t len)
+ssize_t fdread(int fd, void* vptr, ssize_t len)
 {
     ssize_t n, rc;
     char *ptr;
@@ -195,44 +223,57 @@ ssize_t prv_gpif_read(int fd, void* vptr, ssize_t len)
     ptr = vptr;
     n = 0;
 
-    while(n < len) {
-        if((rc = read(fd, ptr, len-n)) > 0) {
+    while(n < len) 
+    {
+        if((rc = read(fd, ptr, len-n)) > 0) 
+        {
             n+=rc;
             ptr=&((char*)vptr)[n];
 
             /* Text mode, break on newline */
             if (((char*)vptr)[n-1] == '\n')
-                return n;
+                break;
 
             if (n == len)
-                return n;
+                break;
         }
         else {
-            if (errno == EINTR)
-                ;
-            else if (errno == EAGAIN) {
-
+            /* Just try again */
+            if ((rc < 0) && (errno == EINTR))
+            {
+                continue;
+            }
+            /* Wait for fd ready and try again */
+            if ((rc < 0) && (errno == EAGAIN))
+            {
                 FD_ZERO(&waitforread); 
                 FD_SET(fd, &waitforread);
-                if (select(fd+1, &waitforread, NULL, NULL, NULL) < 0) {
+                if (select(fd+1, &waitforread, NULL, NULL, NULL) < 0) 
+                {
                     perror("select");
-                    return -1;
-                }     
-
+                    n = -1;
+                    break;
+                }
+                continue;
             }
-            else {
-                if (rc != 0)
-                    perror("read");
-
-                return -1;
+        
+            /* Some fatal error */
+            if (rc != 0)
+            {
+                perror("read");
+                n = -1;
+                break;
             }
+
+            /* Nothing to read */
+            break;
         }
     }
 
     return n;
 }
 
-ssize_t prv_gpif_write(int fd, const void* ptr, size_t len) 
+ssize_t fdwrite(int fd, const void* ptr, size_t len) 
 {
     size_t nleft;
     ssize_t nwritten;
@@ -240,27 +281,33 @@ ssize_t prv_gpif_write(int fd, const void* ptr, size_t len)
     unsigned char *byteptr = (unsigned char*)ptr;
 
     nleft = len;
-    while(nleft > 0) {
-        if((nwritten = write(fd, (const void*)byteptr, nleft)) <= 0) {
-
+    while(nleft > 0) 
+    {
+        if((nwritten = write(fd, (const void*)byteptr, nleft)) <= 0) 
+        {
             if(errno == EINTR)
-                nwritten = 0;
-            else if(errno == EAGAIN) {
-
-                nwritten = 0;
-                
+            {
+                continue;
+            }
+            if(errno == EAGAIN) 
+            {
                 FD_ZERO(&waitforwrite); 
                 FD_SET(fd, &waitforwrite);
-                if (select(fd+1, NULL, &waitforwrite, NULL, NULL) < 0) {
+                if (select(fd+1, NULL, &waitforwrite, NULL, NULL) < 0) 
+                {
                     perror("select");
-                    return -1;
-                } 
+                    len = -1;
+                    break;
+                }
+                continue;
             }
-            else {
-                perror("write");
-                return -1;
-            }
+            
+            /* Some other fatal error */
+            perror("write");
+            len = -1;
+            break;
         }
+
         nleft -= nwritten;
         byteptr += nwritten;
     }
